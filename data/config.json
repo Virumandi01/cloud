@@ -1,0 +1,7 @@
+{
+  "port": 9090,
+  "storage_root": "../data",
+  "default_storage_limit_bytes": 10737418240,
+  "chunk_size_bytes": 5242880,
+  "allow_registration": false
+}

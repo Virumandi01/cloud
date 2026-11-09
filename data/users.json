@@ -1,0 +1,14 @@
+{
+  "users": [
+    {
+      "id": "usr_admin",
+      "username": "admin",
+      "passcode_hash": "$2a$10$7EqJtq98hPqEX7fNZaFWoO.8/v6OaPqE4y7nfkzEshK.a1Z6cR.aW",
+      "storage_limit_bytes": 107374182400,
+      "used_bytes": 0,
+      "is_active": true,
+      "role": "admin",
+      "created_at": "2026-11-08T00:00:00Z"
+    }
+  ]
+}
