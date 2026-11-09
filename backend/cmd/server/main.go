@@ -2,38 +2,47 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
 	backend "cloud-core"
 	"cloud-core/internal/api"
+	"cloud-core/internal/config"
 	"cloud-core/internal/users"
 )
 
 func main() {
-	dataDir := "../data"
+	// 1. Ultra-low RAM tuning:
+	// Set aggressive GC threshold (triggers GC when heap grows 20% over live data instead of default 100%)
+	debug.SetGCPercent(20)
+	// Suggest a soft memory ceiling to the Go runtime (e.g. 50MB)
+	debug.SetMemoryLimit(50 * 1024 * 1024)
 
-	// Fallback check if run directly inside cloud/ root
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		dataDir = "data"
-	}
+	// 2. Load Dynamic .env Configuration
+	cfg := config.Load()
 
-	um, err := users.NewUserManager(dataDir)
+	// 3. Initialize Core Authority Services
+	um, err := users.NewUserManager(cfg.DataDir)
 	if err != nil {
 		log.Fatalf("failed to initialize user manager: %v", err)
 	}
 
-	// Loads live files from ../web during development
+	// 4. Mount Embedded/Live Web Asset FS
 	webFS := backend.GetWebFileSystem()
 
-	router := api.NewRouter(webFS, dataDir, um)
+	// 5. Create Master Router
+	router := api.NewRouter(webFS, cfg.DataDir, um)
+
+	bindAddr := fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
 
 	srv := &http.Server{
-		Addr:         ":9090",
+		Addr:         bindAddr,
 		Handler:      router,
 		ReadTimeout:  1 * time.Hour,
 		WriteTimeout: 1 * time.Hour,
@@ -41,12 +50,13 @@ func main() {
 	}
 
 	go func() {
-		log.Println("Cloud Server running at http://0.0.0.0:9999")
+		log.Printf("Cloud Daemon live on http://%s (Data Root: %s)\n", bindAddr, cfg.DataDir)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen error: %v", err)
 		}
 	}()
 
+	// Graceful Shutdown
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop

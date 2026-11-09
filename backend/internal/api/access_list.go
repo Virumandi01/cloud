@@ -79,3 +79,57 @@ func (al *AccessList) watch() {
 		}
 	}
 }
+
+// Add marks a file path as public and writes to access.txt
+func (al *AccessList) Add(entry string) error {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return nil
+	}
+
+	al.allowed[entry] = true
+	return al.flush()
+}
+
+// Remove unmarks a file and removes it from access.txt
+func (al *AccessList) Remove(entry string) error {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+
+	delete(al.allowed, strings.TrimSpace(entry))
+	return al.flush()
+}
+
+// Toggle flips the public status
+func (al *AccessList) Toggle(entry string) (bool, error) {
+	al.mu.Lock()
+	defer al.mu.Unlock()
+
+	entry = strings.TrimSpace(entry)
+	curr := al.allowed[entry]
+	if curr {
+		delete(al.allowed, entry)
+	} else {
+		al.allowed[entry] = true
+	}
+
+	return !curr, al.flush()
+}
+
+// flush writes current allowed state to data/access.txt
+func (al *AccessList) flush() error {
+	f, err := os.Create(al.filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+	for item := range al.allowed {
+		_, _ = w.WriteString(item + "\n")
+	}
+	return w.Flush()
+}
