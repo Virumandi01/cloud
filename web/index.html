@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cloud Core</title>
+  <link rel="stylesheet" href="/assets/css/style.css" />
+  <!-- Lightweight Open-Source Client-Side Document Renderers -->
+  <script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js" defer></script>
+  <script src="https://unpkg.com/docx-preview@0.3.1/dist/docx-preview.min.js" defer></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js" defer></script>
+</head>
+<body>
+  <img id="wallpaper" src="/api/user/wallpaper" onerror="this.style.display='none'" alt="" />
+
+  <!-- Login Overlay -->
+  <div class="modal-backdrop open" id="loginModal">
+    <div class="modal-card">
+      <h2 style="margin-bottom:6px;">Private Cloud</h2>
+      <p style="color:var(--text-muted); font-size:0.88rem; margin-bottom:18px;">Sign in with your host-issued credentials.</p>
+      <label>Username</label>
+      <input type="text" id="loginUser" placeholder="admin" autocomplete="username" />
+      <label>Passcode</label>
+      <input type="password" id="loginPass" placeholder="••••••••" autocomplete="current-password" />
+      <p id="loginError" style="color:var(--danger); font-size:0.85rem; margin-bottom:10px;"></p>
+      <button class="btn btn-primary" style="width:100%; padding:11px;" onclick="submitLogin()">Unlock Space</button>
+    </div>
+  </div>
+
+  <!-- Main Workspace -->
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">☁️ Cloud Core</div>
+      <button class="nav-btn active" id="navFiles" onclick="switchTab('files')">📁 My Files</button>
+      <button class="nav-btn" id="navAudio" onclick="switchTab('audio')">🎵 Audio Library</button>
+      <button class="nav-btn" id="navProfile" onclick="switchTab('profile')">🎨 Profile & Wallpaper</button>
+      <button class="nav-btn" id="navAdmin" style="display:none;" onclick="switchTab('admin')">🛡️ Admin Console</button>
+
+      <div class="quota-box">
+        <div style="display:flex; justify-content:space-between;">
+          <span id="userLabel" style="font-weight:600;">—</span>
+          <span id="quotaText">0 / 0 GB</span>
+        </div>
+        <div class="quota-bar"><div class="quota-fill" id="quotaFill"></div></div>
+        <button class="btn" style="width:100%; margin-top:6px; font-size:0.8rem;" onclick="logout()">Lock / Sign Out</button>
+      </div>
+    </aside>
+
+    <main class="main-area" id="dropZone">
+      <div class="drop-overlay" id="dropOverlay">
+        <h2>Drop files to upload with SHA-256 verification</h2>
+        <p style="color:var(--text-muted);">Supports automatic pause, offline resume, and large files</p>
+      </div>
+
+      <header class="topbar">
+        <div class="breadcrumbs" id="breadcrumbs"><span>/</span></div>
+        <div class="actions">
+          <input type="file" id="filePicker" multiple hidden onchange="handlePickedFiles(this.files)" />
+          <input type="file" id="wpPicker" accept="image/*" hidden onchange="uploadWallpaper(this.files[0])" />
+          <button class="btn" onclick="createNewFolder()">+ New Folder</button>
+          <button class="btn btn-primary" onclick="document.getElementById('filePicker').click()">↑ Upload</button>
+        </div>
+      </header>
+
+      <!-- Tab 1: Files -->
+      <section class="content-scroll" id="tabFiles">
+        <table class="file-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Size</th>
+              <th>Access (access.txt)</th>
+              <th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="fileListBody"></tbody>
+        </table>
+      </section>
+
+      <!-- Tab 2: Audio Player -->
+      <section class="content-scroll" id="tabAudio" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <h3>Music Library</h3>
+          <div style="display:flex; gap:8px;">
+            <button class="btn" onclick="loadAudio('alpha')">Sort A–Z</button>
+            <button class="btn" onclick="loadAudio('artist')">Sort by Artist</button>
+          </div>
+        </div>
+        <div id="audioPlayerBar" style="background:var(--glass-surface); padding:14px; border-radius:12px; margin-bottom:16px; display:none; align-items:center; gap:14px;">
+          <img id="nowCover" style="width:52px; height:52px; border-radius:8px; object-fit:cover; background:#1e293b;" />
+          <div style="flex:1;">
+            <div id="nowTitle" style="font-weight:600;">Select a track</div>
+            <div id="nowArtist" style="font-size:0.84rem; color:var(--text-muted);">—</div>
+          </div>
+          <audio id="htmlAudio" controls style="height:36px;"></audio>
+        </div>
+        <div id="audioList"></div>
+      </section>
+
+      <!-- Tab 3: User Profile & Wallpaper -->
+      <section class="content-scroll" id="tabProfile" style="display:none; max-width:520px;">
+        <h3 style="margin-bottom:8px;">Personal Workspace</h3>
+        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:20px;">
+          Your credentials and storage quota are managed securely by the server host. You can customize your personal background wallpaper below.
+        </p>
+        <div style="background:var(--glass-surface); padding:18px; border-radius:12px; border:1px solid var(--glass-border);">
+          <h4 style="margin-bottom:10px;">Custom Desktop & Mobile Wallpaper</h4>
+          <button class="btn btn-primary" onclick="document.getElementById('wpPicker').click()">Choose Wallpaper Image</button>
+        </div>
+      </section>
+
+      <!-- Tab 4: Admin Console (Host Authority UI) -->
+      <section class="content-scroll" id="tabAdmin" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+          <div>
+            <h3>Server Admin Console</h3>
+            <p style="color:var(--text-muted); font-size:0.86rem;">Manage user accounts, storage limits, and passcodes.</p>
+          </div>
+        </div>
+
+        <div style="background:var(--glass-surface); padding:16px; border-radius:12px; border:1px solid var(--glass-border); margin-bottom:20px; display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px; align-items:end;">
+          <div><label>New Username</label><input id="admNewUser" placeholder="e.g. alex" style="margin-bottom:0;" /></div>
+          <div><label>Passcode</label><input id="admNewPass" type="password" placeholder="Set passcode" style="margin-bottom:0;" /></div>
+          <div><label>Storage Limit (GB)</label><input id="admNewQuota" type="number" value="20" style="margin-bottom:0;" /></div>
+          <button class="btn btn-primary" style="height:40px;" onclick="adminCreateUser()">+ Create User</button>
+        </div>
+
+        <table class="file-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Used / Quota</th>
+              <th>Update Quota (GB) / Passcode</th>
+            </tr>
+          </thead>
+          <tbody id="adminUsersBody"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <!-- Resumable Upload Progress Drawer -->
+  <div class="transfer-drawer" id="transferDrawer">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <strong id="txFileName" style="font-size:0.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px;">Uploading...</strong>
+      <button class="btn" id="txPauseBtn" style="padding:4px 10px; font-size:0.78rem;" onclick="toggleUploadPause()">Pause</button>
+    </div>
+    <div class="quota-bar"><div class="quota-fill" id="txBar"></div></div>
+    <div id="txStatus" style="font-size:0.78rem; color:var(--text-muted);">Verifying SHA-256 chunks...</div>
+  </div>
+
+  <!-- Universal File Preview Modal -->
+  <div class="modal-backdrop" id="viewerModal">
+    <div class="modal-card viewer-large">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <strong id="viewerTitle">Preview</strong>
+        <div style="display:flex; gap:8px;">
+          <a id="viewerDownloadBtn" class="btn btn-primary" download>↓ Download</a>
+          <button class="btn" onclick="closeViewer()">✕ Close</button>
+        </div>
+      </div>
+      <div class="viewer-body" id="viewerBody"></div>
+    </div>
+  </div>
+
+  <script src="/src/upload_resumable.js"></script>
+  <script src="/src/app.js"></script>
+</body>
+</html>

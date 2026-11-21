@@ -90,11 +90,15 @@ func (um *UserManager) Load() error {
 
 func (um *UserManager) Save() error {
 	um.mu.RLock()
-	var list []UserAccount
+	defer um.mu.RUnlock()
+	return um.saveUnlocked()
+}
+
+func (um *UserManager) saveUnlocked() error {
+	list := make([]UserAccount, 0, len(um.users))
 	for _, u := range um.users {
 		list = append(list, *u)
 	}
-	um.mu.RUnlock()
 
 	raw, err := json.MarshalIndent(struct {
 		Users []UserAccount `json:"users"`
@@ -104,6 +108,50 @@ func (um *UserManager) Save() error {
 	}
 
 	return os.WriteFile(um.filePath, raw, 0600)
+}
+
+func (um *UserManager) AddUsedBytes(username string, bytes int64) error {
+	um.mu.Lock()
+	defer um.mu.Unlock()
+
+	user, exists := um.users[username]
+	if !exists {
+		return errors.New("user not found")
+	}
+
+	user.UsedBytes += bytes
+	return um.saveUnlocked()
+}
+
+func (um *UserManager) SetUserQuota(username string, limitBytes int64) error {
+	um.mu.Lock()
+	defer um.mu.Unlock()
+
+	user, exists := um.users[username]
+	if !exists {
+		return errors.New("user not found")
+	}
+
+	user.StorageLimitBytes = limitBytes
+	return um.saveUnlocked()
+}
+
+func (um *UserManager) SetUserPasscode(username, newPasscode string) error {
+	um.mu.Lock()
+	defer um.mu.Unlock()
+
+	user, exists := um.users[username]
+	if !exists {
+		return errors.New("user not found")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPasscode), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.PasscodeHash = string(hash)
+	return um.saveUnlocked()
 }
 
 func (um *UserManager) Authenticate(username, passcode string) (*UserAccount, error) {
@@ -123,6 +171,49 @@ func (um *UserManager) Authenticate(username, passcode string) (*UserAccount, er
 	return user, nil
 }
 
+func (um *UserManager) ListAllUsers() []UserAccount {
+	um.mu.RLock()
+	defer um.mu.RUnlock()
+
+	list := make([]UserAccount, 0, len(um.users))
+	for _, u := range um.users {
+		safeCopy := *u
+		safeCopy.PasscodeHash = "" // Never expose hashes to UI
+		list = append(list, safeCopy)
+	}
+	return list
+}
+
+func (um *UserManager) CreateUser(username, passcode string, limitBytes int64) error {
+	um.mu.Lock()
+	if _, exists := um.users[username]; exists {
+		um.mu.Unlock()
+		return errors.New("username already exists")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(passcode), bcrypt.DefaultCost)
+	if err != nil {
+		um.mu.Unlock()
+		return err
+	}
+
+	um.users[username] = &UserAccount{
+		ID:                "usr_" + username,
+		Username:          username,
+		PasscodeHash:      string(hash),
+		StorageLimitBytes: limitBytes,
+		UsedBytes:         0,
+		IsActive:          true,
+		Role:              "user",
+		CreatedAt:         time.Now().UTC(),
+	}
+	um.mu.Unlock()
+
+	_ = os.MkdirAll(filepath.Join(um.dataDir, "users", username, "files"), 0755)
+	_ = os.MkdirAll(filepath.Join(um.dataDir, "users", username, ".chunks"), 0755)
+	return um.Save()
+}
+
 func (um *UserManager) CheckQuota(username string, incomingBytes int64) error {
 	um.mu.RLock()
 	user, exists := um.users[username]
@@ -136,48 +227,4 @@ func (um *UserManager) CheckQuota(username string, incomingBytes int64) error {
 		return fmt.Errorf("quota exceeded: using %d of %d bytes", user.UsedBytes, user.StorageLimitBytes)
 	}
 	return nil
-}
-
-func (um *UserManager) AddUsedBytes(username string, bytes int64) error {
-	um.mu.Lock()
-	defer um.mu.Unlock()
-
-	user, exists := um.users[username]
-	if !exists {
-		return errors.New("user not found")
-	}
-
-	user.UsedBytes += bytes
-	return um.Save()
-}
-
-func (um *UserManager) SetUserQuota(username string, limitBytes int64) error {
-	um.mu.Lock()
-	defer um.mu.Unlock()
-
-	user, exists := um.users[username]
-	if !exists {
-		return errors.New("user not found")
-	}
-
-	user.StorageLimitBytes = limitBytes
-	return um.Save()
-}
-
-func (um *UserManager) SetUserPasscode(username, newPasscode string) error {
-	um.mu.Lock()
-	defer um.mu.Unlock()
-
-	user, exists := um.users[username]
-	if !exists {
-		return errors.New("user not found")
-	}
-
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPasscode), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	user.PasscodeHash = string(hash)
-	return um.Save()
 }
